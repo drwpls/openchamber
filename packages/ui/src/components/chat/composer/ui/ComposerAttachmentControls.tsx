@@ -38,6 +38,7 @@ type ComposerAttachmentControlsProps = {
     repositoryProvider?: string | null;
     /** One entry per signed-in tracker, in the server's order. */
     trackerPickers?: readonly ComposerTrackerPicker[];
+    handlePickLocalFolder?: () => void;
     onOpenSettings?: () => void;
     onMenuOpenChange?: (open: boolean) => void;
     /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
@@ -61,6 +62,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         openGitHubPicker,
         repositoryProvider = null,
         trackerPickers,
+        handlePickLocalFolder,
         onOpenSettings,
         attachGuests,
         onOpenGuestAttach,
@@ -122,6 +124,16 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 <Icon name="attachment-2"/>
                                 {t('chat.chatInput.actions.attachFiles')}
                             </DropdownMenuItem>
+                            {handlePickLocalFolder ? (
+                                <DropdownMenuItem
+                                    onSelect={() => {
+                                        requestAnimationFrame(handlePickLocalFolder);
+                                    }}
+                                >
+                                    <Icon name="folder"/>
+                                    Attach folder
+                                </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem
                                 onSelect={() => {
                                     requestAnimationFrame(openGitHubPicker);

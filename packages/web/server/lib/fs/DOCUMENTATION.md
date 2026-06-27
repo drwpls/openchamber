@@ -25,6 +25,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `GET /api/fs/preview/:grant/:path(*)`
     - `POST /api/fs/write`
     - `POST /api/fs/upload`
+    - `POST /api/fs/upload-temp`
     - `POST /api/fs/delete`
     - `POST /api/fs/rename` — renames or moves within one workspace root and
       never replaces an existing destination: it returns `409` with

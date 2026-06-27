@@ -66,6 +66,7 @@ interface ComposerFooterProps {
     /** The host the project's issues and change requests come from. */
     repositoryProvider?: SourceControlProvider | null;
     trackerPickers?: readonly ComposerTrackerPicker[];
+    onPickLocalFolder?: () => void;
     attachGuests?: readonly GuestAttachItem[];
     onOpenGuestAttach?: (guestId: string) => void;
     onOpenAttachSheet: () => void;
@@ -137,6 +138,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
         onOpenGitHubPicker,
         repositoryProvider,
         trackerPickers,
+        onPickLocalFolder,
         attachGuests,
         onOpenGuestAttach,
         onOpenAttachSheet,
@@ -192,6 +194,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                                 openGitHubPicker={onOpenGitHubPicker}
                                 repositoryProvider={repositoryProvider}
                                 trackerPickers={trackerPickers}
+                                handlePickLocalFolder={onPickLocalFolder}
                                 onOpenSettings={isBtw ? undefined : onOpenSettings}
                                 onOpenMobileSheet={onOpenAttachSheet}
                                 attachGuests={attachGuests}
@@ -265,6 +268,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                             openGitHubPicker={onOpenGitHubPicker}
                             repositoryProvider={repositoryProvider}
                             trackerPickers={trackerPickers}
+                            handlePickLocalFolder={onPickLocalFolder}
                             onOpenSettings={isBtw ? undefined : onOpenSettings}
                             attachGuests={attachGuests}
                             onOpenGuestAttach={onOpenGuestAttach}
