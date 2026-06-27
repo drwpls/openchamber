@@ -60,6 +60,7 @@ import { Icon } from "@/components/icon/Icon";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { opencodeClient } from '@/lib/opencode/client';
+import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
@@ -523,8 +524,11 @@ type ComposerAttachmentControlsProps = {
     footerIconButtonClass: string;
     iconSizeClass: string;
     fileInputRef: React.RefObject<HTMLInputElement | null>;
+    folderInputRef: React.RefObject<HTMLInputElement | null>;
     handleLocalFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void | Promise<void>;
+    handleLocalFolderSelect: (event: React.ChangeEvent<HTMLInputElement>) => void | Promise<void>;
     handlePickLocalFiles: () => void;
+    handlePickLocalFolder: () => void;
     openIssuePicker: () => void;
     openPrPicker: () => void;
     onOpenSettings?: () => void;
@@ -537,8 +541,11 @@ const ComposerAttachmentControls = React.memo(function ComposerAttachmentControl
         footerIconButtonClass,
         iconSizeClass,
         fileInputRef,
+        folderInputRef,
         handleLocalFileSelect,
+        handleLocalFolderSelect,
         handlePickLocalFiles,
+        handlePickLocalFolder,
         openIssuePicker,
         openPrPicker,
         onOpenSettings,
@@ -553,6 +560,14 @@ const ComposerAttachmentControls = React.memo(function ComposerAttachmentControl
                 className="hidden"
                 onChange={handleLocalFileSelect}
                 accept="*/*"
+            />
+            <input
+                ref={folderInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleLocalFolderSelect}
+                {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
             />
 
             <div className="relative inline-flex">
@@ -586,6 +601,14 @@ const ComposerAttachmentControls = React.memo(function ComposerAttachmentControl
                             >
                                 <Icon name="attachment-2"/>
                                 {t('chat.chatInput.actions.attachFiles')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onSelect={() => {
+                                    requestAnimationFrame(handlePickLocalFolder);
+                                }}
+                            >
+                                <Icon name="folder"/>
+                                Attach folder
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 onSelect={() => {
@@ -884,6 +907,34 @@ const appendInlineText = (base: string, next: string): string => {
     }
     const separator = /[\s\n]$/.test(base) ? '' : ' ';
     return `${base}${separator}${nextTrimmed} `;
+};
+
+const isPdfAttachmentFile = (file: File): boolean => {
+    const mime = (file.type || '').toLowerCase();
+    return mime === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+};
+
+const getUploadRelativePath = (file: File): string => {
+    const maybeFolderFile = file as File & { webkitRelativePath?: string };
+    const relativePath = typeof maybeFolderFile.webkitRelativePath === 'string'
+        ? maybeFolderFile.webkitRelativePath.trim()
+        : '';
+    return relativePath || file.name;
+};
+
+const readChatUploadFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
+    reader.onabort = () => reject(new Error('File read aborted'));
+    reader.readAsDataURL(file);
+});
+
+type UploadedTempFile = {
+    path: string;
+    filename: string;
+    mimeType: string;
+    size: number;
 };
 
 interface ChatInputProps {
@@ -3567,11 +3618,77 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     };
 
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const folderInputRef = React.useRef<HTMLInputElement>(null);
+
+    const appendUploadedPdfPaths = React.useCallback((paths: string[]) => {
+        const uniquePaths = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+        if (uniquePaths.length === 0) return;
+
+        const promptText = uniquePaths.length === 1
+            ? `The attached PDF file is saved at: ${uniquePaths[0]}`
+            : `The attached PDF files are saved at:\n${uniquePaths.map((path) => `- ${path}`).join('\n')}`;
+
+        const nextMessage = appendBlockText(messageRef.current, promptText);
+        messageRef.current = nextMessage;
+        setMessage(nextMessage);
+        adjustTextareaHeight();
+        saveStoredDraft(currentSessionId, nextMessage);
+    }, [adjustTextareaHeight, currentSessionId]);
+
+    const uploadPdfFilesToProjectTemp = React.useCallback(async (pdfFiles: File[]): Promise<UploadedTempFile[]> => {
+        if (pdfFiles.length === 0) return [];
+
+        const uploadFiles = [];
+        for (const file of pdfFiles) {
+            uploadFiles.push({
+                filename: file.name,
+                relativePath: getUploadRelativePath(file),
+                mimeType: file.type || 'application/pdf',
+                dataUrl: await readChatUploadFileAsDataUrl(file),
+            });
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        };
+        const uploadDirectory = currentDirectory || opencodeClient.getDirectory();
+        if (uploadDirectory) {
+            headers['x-opencode-directory'] = uploadDirectory;
+        }
+
+        const response = await runtimeFetch('/api/fs/upload-temp', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ files: uploadFiles }),
+        });
+
+        const payload = (await response.json().catch(() => null)) as { files?: UploadedTempFile[]; error?: string } | null;
+        if (!response.ok) {
+            throw new Error(payload?.error || 'Failed to upload PDF attachment');
+        }
+        return Array.isArray(payload?.files) ? payload.files : [];
+    }, [currentDirectory]);
 
     const attachFiles = React.useCallback(async (files: FileList | File[]) => {
         const list = Array.isArray(files) ? files : Array.from(files);
+        const pdfFiles = list.filter(isPdfAttachmentFile);
+
+        if (pdfFiles.length > 0) {
+            try {
+                const uploadedFiles = await uploadPdfFilesToProjectTemp(pdfFiles);
+                appendUploadedPdfPaths(uploadedFiles.map((file) => file.path));
+            } catch (error) {
+                console.error('PDF upload failed', error);
+                toast.error(error instanceof Error ? error.message : 'Failed to upload PDF attachment');
+                return;
+            }
+        }
 
         for (const file of list) {
+            if (isPdfAttachmentFile(file)) {
+                continue;
+            }
             try {
                 await addAttachedFile(file);
             } catch (error) {
@@ -3579,7 +3696,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.attachFileFailed'));
             }
         }
-    }, [addAttachedFile, t]);
+    }, [addAttachedFile, appendUploadedPdfPaths, t, uploadPdfFilesToProjectTemp]);
 
     const handleVSCodePickFiles = React.useCallback(async () => {
         try {
@@ -3635,7 +3752,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         fileInputRef.current?.click();
     }, [handleVSCodePickFiles]);
 
+    const handlePickLocalFolder = React.useCallback(() => {
+        folderInputRef.current?.click();
+    }, []);
+
     const handleLocalFileSelect = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (!files) return;
+        await attachFiles(files);
+        event.target.value = '';
+    }, [attachFiles]);
+
+    const handleLocalFolderSelect = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (!files) return;
         await attachFiles(files);
@@ -4524,8 +4652,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                             footerIconButtonClass={footerIconButtonClass}
                                             iconSizeClass={iconSizeClass}
                                             fileInputRef={fileInputRef}
+                                            folderInputRef={folderInputRef}
                                             handleLocalFileSelect={handleLocalFileSelect}
+                                            handleLocalFolderSelect={handleLocalFolderSelect}
                                             handlePickLocalFiles={handlePickLocalFiles}
+                                            handlePickLocalFolder={handlePickLocalFolder}
                                             openIssuePicker={openIssuePicker}
                                             openPrPicker={openPrPicker}
                                             onOpenSettings={onOpenSettings}
@@ -4580,8 +4711,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                         footerIconButtonClass={footerIconButtonClass}
                                         iconSizeClass={iconSizeClass}
                                         fileInputRef={fileInputRef}
+                                        folderInputRef={folderInputRef}
                                         handleLocalFileSelect={handleLocalFileSelect}
+                                        handleLocalFolderSelect={handleLocalFolderSelect}
                                         handlePickLocalFiles={handlePickLocalFiles}
+                                        handlePickLocalFolder={handlePickLocalFolder}
                                         openIssuePicker={openIssuePicker}
                                         openPrPicker={openPrPicker}
                                         onOpenSettings={onOpenSettings}

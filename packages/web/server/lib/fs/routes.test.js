@@ -200,6 +200,32 @@ const registerMkdir = (fsPromises) => {
   return getRoute('POST', '/api/fs/mkdir');
 };
 
+const registerUploadTemp = (fsPromises) => {
+  const { app, getRoute } = createRouteRegistry();
+  registerFsRoutes(app, {
+    os: { homedir: () => '/home/user' },
+    path: path.posix,
+    fsPromises: {
+      realpath: async (targetPath) => targetPath,
+      ...fsPromises,
+    },
+    spawn: vi.fn(),
+    crypto: { randomUUID: () => 'job-0' },
+    normalizeDirectoryPath: (p) => p,
+    resolveProjectDirectory: async () => ({ directory: '/repo' }),
+    buildAugmentedPath: () => '/usr/bin',
+    resolveGitBinaryForSpawn: () => 'git',
+    openchamberUserConfigRoot: '/home/user/.config',
+  });
+  return getRoute('POST', '/api/fs/upload-temp');
+};
+
+const callUploadTemp = async (handler, body) => {
+  const res = createMockResponse();
+  await handler({ body }, res);
+  return res;
+};
+
 const callExec = async (handler, body) => {
   const res = createMockResponse();
   await handler({ body }, res);
@@ -310,6 +336,94 @@ describe('fs write', () => {
     expect(res.body).toEqual({ error: 'Access denied' });
     expect(fsPromises.writeFile).not.toHaveBeenCalled();
     expect(fsPromises.rename).not.toHaveBeenCalled();
+  });
+});
+
+describe('fs upload-temp', () => {
+  it('writes multiple files into tmp and preserves relative folders', async () => {
+    const fsPromises = {
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined),
+      unlink: vi.fn(async () => undefined),
+      realpath: vi.fn(async (targetPath) => targetPath),
+    };
+    const handler = registerUploadTemp(fsPromises);
+
+    const res = await callUploadTemp(handler, {
+      files: [
+        {
+          filename: 'image.png',
+          relativePath: 'screenshots/nested/image.png',
+          mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,aGVsbG8=',
+        },
+        {
+          filename: 'notes.txt',
+          dataUrl: 'data:text/plain;base64,d29ybGQ=',
+        },
+      ],
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.files).toHaveLength(2);
+    expect(res.body.files[0].path).toMatch(/^\/repo\/tmp\/screenshots\/nested\/image-.*\.png$/);
+    expect(res.body.files[0].filename).toMatch(/^image-.*\.png$/);
+    expect(res.body.files[0].mimeType).toBe('image/png');
+    expect(res.body.files[0].size).toBe(5);
+    expect(res.body.files[1].path).toMatch(/^\/repo\/tmp\/notes-.*\.txt$/);
+    expect(fsPromises.mkdir).toHaveBeenCalledWith('/repo/tmp/screenshots/nested', { recursive: true });
+    expect(fsPromises.mkdir).toHaveBeenCalledWith('/repo/tmp', { recursive: true });
+    expect(fsPromises.writeFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects non-data URLs and empty file arrays', async () => {
+    const fsPromises = {
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined),
+    };
+    const handler = registerUploadTemp(fsPromises);
+
+    const emptyRes = await callUploadTemp(handler, { files: [] });
+    expect(emptyRes.statusCode).toBe(400);
+    expect(emptyRes.body).toEqual({ error: 'Files array is required' });
+
+    const badUrlRes = await callUploadTemp(handler, {
+      files: [{ filename: 'file.txt', dataUrl: 'https://example.com/file.txt' }],
+    });
+    expect(badUrlRes.statusCode).toBe(400);
+    expect(badUrlRes.body).toEqual({ error: 'Only data URLs are supported' });
+  });
+
+  it('rejects invalid filenames', async () => {
+    const fsPromises = {
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined),
+    };
+    const handler = registerUploadTemp(fsPromises);
+
+    const res = await callUploadTemp(handler, {
+      files: [{ filename: '../file.txt', dataUrl: 'data:text/plain;base64,dGVzdA==' }],
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'filename must not contain path separators' });
+  });
+
+  it('rejects files larger than the per-file limit', async () => {
+    const fsPromises = {
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined),
+    };
+    const handler = registerUploadTemp(fsPromises);
+    const oversized = Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64');
+
+    const res = await callUploadTemp(handler, {
+      files: [{ filename: 'big.bin', dataUrl: `data:application/octet-stream;base64,${oversized}` }],
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'File exceeds size limit (50 MB)' });
   });
 });
 
