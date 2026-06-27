@@ -24,6 +24,7 @@ type ComposerAttachmentControlsProps = {
     footerIconButtonClass: string;
     iconSizeClass: string;
     handlePickLocalFiles: () => void;
+    handlePickLocalFolder?: () => void;
     openIssuePicker: () => void;
     openPrPicker: () => void;
     onOpenSettings?: () => void;
@@ -39,6 +40,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         footerIconButtonClass,
         iconSizeClass,
         handlePickLocalFiles,
+        handlePickLocalFolder,
         openIssuePicker,
         openPrPicker,
         onOpenSettings,
@@ -98,6 +100,16 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 <Icon name="attachment-2"/>
                                 {t('chat.chatInput.actions.attachFiles')}
                             </DropdownMenuItem>
+                            {handlePickLocalFolder ? (
+                                <DropdownMenuItem
+                                    onSelect={() => {
+                                        requestAnimationFrame(handlePickLocalFolder);
+                                    }}
+                                >
+                                    <Icon name="folder"/>
+                                    Attach folder
+                                </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem
                                 onSelect={() => {
                                     requestAnimationFrame(openIssuePicker);

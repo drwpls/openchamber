@@ -53,6 +53,7 @@ export interface ComposerFooterProps {
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
+    onPickLocalFolder?: () => void;
     onOpenIssuePicker: () => void;
     onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
@@ -92,6 +93,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         dictationActive,
         onOpenSettings,
         onPickLocalFiles,
+        onPickLocalFolder,
         onOpenIssuePicker,
         onOpenPrPicker,
         onOpenAttachSheet,
@@ -128,6 +130,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
                                 handlePickLocalFiles={onPickLocalFiles}
+                                handlePickLocalFolder={onPickLocalFolder}
                                 openIssuePicker={onOpenIssuePicker}
                                 openPrPicker={onOpenPrPicker}
                                 onOpenSettings={onOpenSettings}
@@ -197,6 +200,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             handlePickLocalFiles={onPickLocalFiles}
+                            handlePickLocalFolder={onPickLocalFolder}
                             openIssuePicker={onOpenIssuePicker}
                             openPrPicker={onOpenPrPicker}
                             onOpenSettings={onOpenSettings}
