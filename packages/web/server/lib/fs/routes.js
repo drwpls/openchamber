@@ -307,6 +307,147 @@ const resolveReadPathFromContext = async ({ req, targetPath, scope, resolveProje
   });
 };
 
+const UPLOAD_TEMP_MAX_FILES = 200;
+const UPLOAD_TEMP_MAX_BYTES = 50 * 1024 * 1024;
+const UPLOAD_TEMP_INVALID_SEGMENT_CHARS = /[<>:"|?*\u0000-\u001f]/g;
+
+const sanitizeUploadPathSegment = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    return '';
+  }
+
+  const normalized = raw
+    .normalize('NFKC')
+    .replace(UPLOAD_TEMP_INVALID_SEGMENT_CHARS, '-')
+    .replace(/[\\/]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s-]+|[.\s-]+$/g, '');
+
+  if (!normalized || normalized === '.' || normalized === '..') {
+    return '';
+  }
+
+  return normalized;
+};
+
+const validateUploadFilename = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    return { ok: false, error: 'filename is required' };
+  }
+  if (raw.includes('/') || raw.includes('\\')) {
+    return { ok: false, error: 'filename must not contain path separators' };
+  }
+  if (raw === '.' || raw === '..') {
+    return { ok: false, error: 'filename is invalid' };
+  }
+  return { ok: true, filename: raw };
+};
+
+const buildTimestampedUploadFilename = (sourceName, timestamp) => {
+  const parsed = nodePath.parse(sourceName);
+  const stem = sanitizeUploadPathSegment(parsed.name);
+  if (!stem) {
+    return '';
+  }
+
+  const ext = typeof parsed.ext === 'string' && parsed.ext !== '.'
+    ? parsed.ext.replace(/[^.\w+-]/g, '')
+    : '';
+  return `${stem}-${timestamp}${ext}`;
+};
+
+const parseUploadTempDataUrl = (value) => {
+  if (typeof value !== 'string') {
+    return { ok: false, error: 'dataUrl is required' };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('data:')) {
+    return { ok: false, error: 'Only data URLs are supported' };
+  }
+
+  const commaIndex = trimmed.indexOf(',');
+  if (commaIndex === -1) {
+    return { ok: false, error: 'Invalid data URL format' };
+  }
+
+  const metadata = trimmed.slice(5, commaIndex).trim();
+  const payload = trimmed.slice(commaIndex + 1).replace(/\s+/g, '');
+  if (!metadata || !payload) {
+    return { ok: false, error: 'Invalid data URL format' };
+  }
+
+  const metadataParts = metadata.split(';').map((part) => part.trim()).filter(Boolean);
+  if (!metadataParts.some((part) => part.toLowerCase() === 'base64')) {
+    return { ok: false, error: 'Only base64 data URLs are supported' };
+  }
+
+  const mimeType = metadataParts[0] && !metadataParts[0].includes('=')
+    ? metadataParts[0]
+    : 'application/octet-stream';
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(payload)) {
+    return { ok: false, error: 'Invalid data URL payload' };
+  }
+
+  let bytes;
+  try {
+    bytes = Buffer.from(payload, 'base64');
+  } catch {
+    return { ok: false, error: 'Failed to decode file content' };
+  }
+
+  if (bytes.length === 0) {
+    return { ok: false, error: 'File content is empty' };
+  }
+  if (bytes.length > UPLOAD_TEMP_MAX_BYTES) {
+    return { ok: false, error: 'File exceeds size limit (50 MB)' };
+  }
+
+  const canonicalPayload = bytes.toString('base64').replace(/=+$/, '');
+  const normalizedPayload = payload.replace(/=+$/, '');
+  if (canonicalPayload !== normalizedPayload) {
+    return { ok: false, error: 'Invalid data URL payload' };
+  }
+
+  return { ok: true, mimeType, bytes };
+};
+
+const buildUploadTempTargetPath = ({ projectRoot, relativePath, filename, timestamp, path }) => {
+  const rawRelativePath = typeof relativePath === 'string' ? relativePath.trim() : '';
+  const sourceName = rawRelativePath
+    ? rawRelativePath.split(/[\\/]+/).filter(Boolean).pop() || ''
+    : filename;
+  const safeFileName = buildTimestampedUploadFilename(sourceName, timestamp);
+  if (!safeFileName) {
+    return { ok: false, error: 'filename is invalid' };
+  }
+
+  const safeRelativeSegments = [];
+  if (rawRelativePath) {
+    const rawSegments = rawRelativePath.split(/[\\/]+/).filter(Boolean);
+    if (rawSegments.length === 0) {
+      return { ok: false, error: 'relativePath is invalid' };
+    }
+
+    for (const segment of rawSegments.slice(0, -1)) {
+      const safeSegment = sanitizeUploadPathSegment(segment);
+      if (!safeSegment) {
+        return { ok: false, error: 'relativePath is invalid' };
+      }
+      safeRelativeSegments.push(safeSegment);
+    }
+  }
+
+  return {
+    ok: true,
+    path: path.join(projectRoot, 'tmp', ...safeRelativeSegments, safeFileName),
+    filename: safeFileName,
+  };
+};
+
 const runCommandInDirectory = ({ shell, shellFlag, command, resolvedCwd, spawn, buildAugmentedPath, commandTimeoutMs }) => {
   return new Promise((resolve) => {
     let stdout = '';
@@ -585,6 +726,114 @@ export const registerFsRoutes = (app, dependencies) => {
     } catch (error) {
       console.error('Failed to create directory:', error);
       return res.status(500).json({ error: error.message || 'Failed to create directory' });
+    }
+  });
+
+  app.post('/api/fs/upload-temp', async (req, res) => {
+    const files = req.body?.files;
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'Files array is required' });
+    }
+    if (files.length > UPLOAD_TEMP_MAX_FILES) {
+      return res.status(400).json({ error: `Files array is too large (max ${UPLOAD_TEMP_MAX_FILES})` });
+    }
+
+    const resolvedProject = await resolveProjectDirectory(req);
+    if (!resolvedProject.directory) {
+      return res.status(400).json({ error: resolvedProject.error || 'Active workspace is required' });
+    }
+
+    const projectRootCheck = await resolveWorkspacePathFromContext({
+      req,
+      targetPath: path.join(resolvedProject.directory, 'tmp'),
+      resolveProjectDirectory,
+      path,
+      os,
+      normalizeDirectoryPath,
+      openchamberUserConfigRoot,
+    });
+    if (!projectRootCheck.ok) {
+      return res.status(400).json({ error: projectRootCheck.error });
+    }
+
+    const createdFiles = [];
+
+    try {
+      const preparedFiles = [];
+      for (const [index, file] of files.entries()) {
+        const filenameCheck = validateUploadFilename(file?.filename);
+        if (!filenameCheck.ok) {
+          return res.status(400).json({ error: filenameCheck.error });
+        }
+
+        const dataUrlCheck = parseUploadTempDataUrl(file?.dataUrl);
+        if (!dataUrlCheck.ok) {
+          return res.status(400).json({ error: dataUrlCheck.error });
+        }
+
+        const timestamp = `${Date.now()}-${index}`;
+        const targetPath = buildUploadTempTargetPath({
+          projectRoot: resolvedProject.directory,
+          relativePath: file?.relativePath,
+          filename: filenameCheck.filename,
+          timestamp,
+          path,
+        });
+        if (!targetPath.ok) {
+          return res.status(400).json({ error: targetPath.error });
+        }
+
+        const resolved = await resolveWorkspacePathFromContext({
+          req,
+          targetPath: targetPath.path,
+          resolveProjectDirectory,
+          path,
+          os,
+          normalizeDirectoryPath,
+          openchamberUserConfigRoot,
+        });
+        if (!resolved.ok) {
+          return res.status(400).json({ error: resolved.error });
+        }
+
+        const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
+        if (!isPathWithinRoot(resolved.resolved, canonicalBase, path, os)) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+
+        preparedFiles.push({
+          resolvedPath: resolved.resolved,
+          filename: targetPath.filename,
+          mimeType: typeof file?.mimeType === 'string' && file.mimeType.trim() ? file.mimeType.trim() : dataUrlCheck.mimeType,
+          bytes: dataUrlCheck.bytes,
+        });
+      }
+
+      const results = [];
+      for (const prepared of preparedFiles) {
+        const parentDirectory = path.dirname(prepared.resolvedPath);
+        await fsPromises.mkdir(parentDirectory, { recursive: true });
+        const canonicalParent = await fsPromises.realpath(parentDirectory);
+        const canonicalBase = await fsPromises.realpath(projectRootCheck.base).catch(() => path.resolve(projectRootCheck.base));
+        if (!isPathWithinRoot(canonicalParent, canonicalBase, path, os)) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+        await fsPromises.writeFile(prepared.resolvedPath, prepared.bytes);
+
+        createdFiles.push(prepared.resolvedPath);
+        results.push({
+          path: prepared.resolvedPath,
+          filename: prepared.filename,
+          mimeType: prepared.mimeType,
+          size: prepared.bytes.length,
+        });
+      }
+
+      return res.json({ success: true, files: results });
+    } catch (error) {
+      await Promise.allSettled(createdFiles.map((filePath) => fsPromises.unlink(filePath).catch(() => {})));
+      console.error('Failed to upload temporary files:', error);
+      return res.status(500).json({ error: (error && error.message) || 'Failed to upload temporary files' });
     }
   });
 
