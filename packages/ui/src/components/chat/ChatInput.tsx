@@ -337,6 +337,34 @@ const MemoMobileAgentButton = React.memo(MobileAgentButton);
 const MemoMobileModelButton = React.memo(MobileModelButton);
 const MemoComposerStatusBar = React.memo(ComposerStatusBar);
 
+const isPdfAttachmentFile = (file: File): boolean => {
+    const mime = (file.type || '').toLowerCase();
+    return mime === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+};
+
+const getUploadRelativePath = (file: File): string => {
+    const maybeFolderFile = file as File & { webkitRelativePath?: string };
+    const relativePath = typeof maybeFolderFile.webkitRelativePath === 'string'
+        ? maybeFolderFile.webkitRelativePath.trim()
+        : '';
+    return relativePath || file.name;
+};
+
+const readChatUploadFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
+    reader.onabort = () => reject(new Error('File read aborted'));
+    reader.readAsDataURL(file);
+});
+
+type UploadedTempFile = {
+    path: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+};
+
 interface ChatInputProps {
     onOpenSettings?: () => void;
     scrollToBottom?: () => void;
@@ -3119,13 +3147,80 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const folderInputRef = React.useRef<HTMLInputElement>(null);
+
+    const appendUploadedPdfPaths = React.useCallback((paths: string[]) => {
+        const uniquePaths = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+        if (uniquePaths.length === 0) return;
+
+        const promptText = uniquePaths.length === 1
+            ? `The attached PDF file is saved at: ${uniquePaths[0]}`
+            : `The attached PDF files are saved at:\n${uniquePaths.map((path) => `- ${path}`).join('\n')}`;
+
+        const nextMessage = appendBlockText(messageRef.current, promptText);
+        messageRef.current = nextMessage;
+        setMessage(nextMessage);
+        adjustTextareaHeight();
+        saveStoredDraft(currentSessionId, nextMessage);
+    }, [adjustTextareaHeight, currentSessionId]);
+
+    const uploadPdfFilesToProjectTemp = React.useCallback(async (pdfFiles: File[]): Promise<UploadedTempFile[]> => {
+        if (pdfFiles.length === 0) return [];
+
+        const uploadFiles = [];
+        for (const file of pdfFiles) {
+            uploadFiles.push({
+                filename: file.name,
+                relativePath: getUploadRelativePath(file),
+                mimeType: file.type || 'application/pdf',
+                dataUrl: await readChatUploadFileAsDataUrl(file),
+            });
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        };
+        const uploadDirectory = currentDirectory || opencodeClient.getDirectory();
+        if (uploadDirectory) {
+            headers['x-opencode-directory'] = uploadDirectory;
+        }
+
+        const response = await runtimeFetch('/api/fs/upload-temp', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ files: uploadFiles }),
+        });
+
+        const payload = (await response.json().catch(() => null)) as { files?: UploadedTempFile[]; error?: string } | null;
+        if (!response.ok) {
+            throw new Error(payload?.error || 'Failed to upload PDF attachment');
+        }
+        return Array.isArray(payload?.files) ? payload.files : [];
+    }, [currentDirectory]);
 
     const attachFiles = React.useCallback(async (files: FileList | File[]) => {
         const attachmentDraftKey = useInputStore.getState().attachmentDraftKey;
         const list = Array.isArray(files) ? files : Array.from(files);
         let attached = false;
+        const pdfFiles = list.filter(isPdfAttachmentFile);
+
+        if (pdfFiles.length > 0) {
+            try {
+                const uploadedFiles = await uploadPdfFilesToProjectTemp(pdfFiles);
+                appendUploadedPdfPaths(uploadedFiles.map((file) => file.path));
+                attached = true;
+            } catch (error) {
+                console.error('PDF upload failed', error);
+                toast.error(error instanceof Error ? error.message : 'Failed to upload PDF attachment');
+                return;
+            }
+        }
 
         for (const file of list) {
+            if (isPdfAttachmentFile(file)) {
+                continue;
+            }
             try {
                 attached = (await addAttachedFile(file)) || attached;
             } catch (error) {
@@ -3136,7 +3231,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (list.length > 0 && !attached) {
             toast.error(t('chat.chatInput.toast.attachFileFailed'));
         }
-    }, [addAttachedFile, t]);
+    }, [addAttachedFile, appendUploadedPdfPaths, t, uploadPdfFilesToProjectTemp]);
 
     const handleVSCodePickFiles = React.useCallback(async () => {
         try {
@@ -3192,7 +3287,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         fileInputRef.current?.click();
     }, [handleVSCodePickFiles]);
 
+    const handlePickLocalFolder = React.useCallback(() => {
+        folderInputRef.current?.click();
+    }, []);
+
     const handleLocalFileSelect = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (!files) return;
+        await attachFiles(files);
+        event.target.value = '';
+    }, [attachFiles]);
+
+    const handleLocalFolderSelect = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (!files) return;
         await attachFiles(files);
@@ -3885,6 +3991,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         dictationActive={mobileShell.dictationActive}
                         onOpenSettings={onOpenSettings}
                         onPickLocalFiles={handlePickLocalFiles}
+                        onPickLocalFolder={handlePickLocalFolder}
                         onOpenIssuePicker={openIssuePicker}
                         onOpenPrPicker={openPrPicker}
                         showLinearPicker={showLinearPicker}
@@ -4042,6 +4149,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             className="hidden"
             onChange={handleLocalFileSelect}
             accept={ATTACHMENT_ACCEPT}
+        />
+        <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleLocalFolderSelect}
+            {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
         />
 
         {/* Mobile attachment sheet: replaces the dropdown (which stole focus and
