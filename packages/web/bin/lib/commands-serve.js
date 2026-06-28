@@ -26,6 +26,7 @@ const DAEMON_READY_TIMEOUT_MS = 30000;
 
 function createServeCommand({
   serverPath,
+  importServerModule,
   bunBin,
   checkOpenCodeCLI,
   getPreferredServerRuntime,
@@ -199,7 +200,10 @@ async function serveCommand(options) {
         console.log(`Starting OpenChamber on port ${targetPort === 0 ? 'auto' : targetPort} (foreground)`);
       }
 
-      const { startWebUiServer } = await import(pathToFileURL(serverPath).href);
+      const serverModule = typeof importServerModule === 'function'
+        ? await importServerModule()
+        : await import(pathToFileURL(serverPath).href);
+      const { startWebUiServer } = serverModule;
       const controller = await startWebUiServer({
         port: targetPort,
         host: effectiveHost,
