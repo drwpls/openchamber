@@ -970,6 +970,19 @@ type UploadedTempFile = {
     size: number;
 };
 
+const PDF_ATTACHMENT_CONTEXT_GUIDE = 'PDF attachments are saved as local file paths, not sent as content. To read one, convert it with Microsoft MarkItDown, e.g. `uvx markitdown "<pdf-path>"` or `markitdown "<pdf-path>"`, then use the converted Markdown/text. If MarkItDown is unavailable, prefer `uvx markitdown "<pdf-path>"`; if uvx is unavailable, install it with `python3 -m pip install "markitdown[all]"` and then run `markitdown "<pdf-path>"`.';
+
+const buildPdfAttachmentContext = (paths: string[]): string | null => {
+    const uniquePaths = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+    if (uniquePaths.length === 0) return null;
+
+    const pathText = uniquePaths.length === 1
+        ? `The attached PDF file is saved at: ${uniquePaths[0]}`
+        : `The attached PDF files are saved at:\n${uniquePaths.map((path) => `- ${path}`).join('\n')}`;
+
+    return `${pathText}\n\n${PDF_ATTACHMENT_CONTEXT_GUIDE}`;
+};
+
 interface ChatInputProps {
     onOpenSettings?: () => void;
     scrollToBottom?: () => void;
@@ -1124,6 +1137,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const suppressNextFileMentionPasteRef = React.useRef(false);
     const suppressNextFileMentionPasteTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingDroppedAbsolutePathsRef = React.useRef<string[]>([]);
+    const pendingUploadedPdfPathsRef = React.useRef<string[]>([]);
     const canAcceptDropRef = React.useRef(false);
     const mentionRef = React.useRef<FileMentionHandle>(null);
     const commandRef = React.useRef<CommandAutocompleteHandle>(null);
@@ -2080,6 +2094,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
+        const pdfAttachmentContext = buildPdfAttachmentContext(pendingUploadedPdfPathsRef.current);
+        if (pdfAttachmentContext) {
+            additionalParts.push({
+                text: pdfAttachmentContext,
+                synthetic: true,
+            });
+        }
+
         const skillMentionInstruction = buildSkillMentionInstruction(mentionedSkillNames);
         if (skillMentionInstruction) {
             additionalParts.push({
@@ -2111,6 +2133,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // Close expanded input overlay when submitting
             setExpandedInput(false);
         }
+        const sentPdfPaths = pendingUploadedPdfPathsRef.current;
+        pendingUploadedPdfPathsRef.current = [];
 
         if (isMobile) {
             textareaRef.current?.blur();
@@ -2409,6 +2433,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 setLinkedPr(null);
             }
         }).catch((error: unknown) => {
+            const restorePdfAttachmentContext = () => {
+                if (sentPdfPaths.length === 0) return;
+                pendingUploadedPdfPathsRef.current = Array.from(new Set([
+                    ...sentPdfPaths,
+                    ...pendingUploadedPdfPathsRef.current,
+                ]));
+            };
             const rawMessage =
                 error instanceof Error
                     ? error.message
@@ -2435,6 +2466,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                 }
+                restorePdfAttachmentContext();
                 return;
             }
 
@@ -2443,12 +2475,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     useInputStore.getState().setAttachedFiles(allAttachments);
                     toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));
                 }
+                restorePdfAttachmentContext();
                 return;
             }
 
             if (allAttachments.length > 0) {
                 useInputStore.getState().setAttachedFiles(allAttachments);
             }
+            restorePdfAttachmentContext();
             toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
         });
 
@@ -3787,20 +3821,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const folderInputRef = React.useRef<HTMLInputElement>(null);
 
-    const appendUploadedPdfPaths = React.useCallback((paths: string[]) => {
+    const rememberUploadedPdfPaths = React.useCallback((paths: string[]) => {
         const uniquePaths = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
         if (uniquePaths.length === 0) return;
 
-        const promptText = uniquePaths.length === 1
-            ? `The attached PDF file is saved at: ${uniquePaths[0]}`
-            : `The attached PDF files are saved at:\n${uniquePaths.map((path) => `- ${path}`).join('\n')}`;
-
-        const nextMessage = appendWithLineBreaks(messageRef.current, promptText);
-        messageRef.current = nextMessage;
-        setMessage(nextMessage);
-        adjustTextareaHeight();
-        saveStoredDraft(currentSessionId, nextMessage);
-    }, [adjustTextareaHeight, currentSessionId]);
+        pendingUploadedPdfPathsRef.current = Array.from(new Set([
+            ...pendingUploadedPdfPathsRef.current,
+            ...uniquePaths,
+        ]));
+    }, []);
 
     const uploadPdfFilesToProjectTemp = React.useCallback(async (pdfFiles: File[]): Promise<UploadedTempFile[]> => {
         if (pdfFiles.length === 0) return [];
@@ -3844,7 +3873,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (pdfFiles.length > 0) {
             try {
                 const uploadedFiles = await uploadPdfFilesToProjectTemp(pdfFiles);
-                appendUploadedPdfPaths(uploadedFiles.map((file) => file.path));
+                rememberUploadedPdfPaths(uploadedFiles.map((file) => file.path));
             } catch (error) {
                 console.error('PDF upload failed', error);
                 toast.error(error instanceof Error ? error.message : 'Failed to upload PDF attachment');
@@ -3863,7 +3892,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.attachFileFailed'));
             }
         }
-    }, [addAttachedFile, appendUploadedPdfPaths, t, uploadPdfFilesToProjectTemp]);
+    }, [addAttachedFile, rememberUploadedPdfPaths, t, uploadPdfFilesToProjectTemp]);
 
     const handleVSCodePickFiles = React.useCallback(async () => {
         try {
