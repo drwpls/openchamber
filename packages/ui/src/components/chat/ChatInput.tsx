@@ -4034,7 +4034,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? `The attached PDF file is saved at: ${uniquePaths[0]}`
             : `The attached PDF files are saved at:\n${uniquePaths.map((path) => `- ${path}`).join('\n')}`;
 
-        const nextMessage = appendBlockText(messageRef.current, promptText);
+        const nextMessage = appendWithLineBreaks(messageRef.current, promptText);
         messageRef.current = nextMessage;
         setMessage(nextMessage);
         adjustTextareaHeight();
