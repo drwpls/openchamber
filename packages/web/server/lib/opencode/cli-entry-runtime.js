@@ -10,7 +10,8 @@ export const runCliEntryIfMain = (dependencies) => {
     startServer,
   } = dependencies;
 
-  const isCliExecution = process.argv[1] === currentFilename;
+  const isCliExecution = process.env.OPENCHAMBER_EMBEDDED_SERVER_IMPORT !== 'true'
+    && process.argv[1] === currentFilename;
   if (!isCliExecution) {
     return;
   }
