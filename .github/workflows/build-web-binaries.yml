@@ -55,11 +55,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s globstar nullglob
           mkdir -p artifacts
+          rm -rf dist
+          cp -R packages/web/dist dist
           bun build \
             --compile \
             --target=${{ matrix.bun_target }} \
             ./packages/web/bin/cli.js \
+            ./dist/**/* \
             --outfile artifacts/${{ matrix.output_name }}
           chmod +x artifacts/${{ matrix.output_name }}
 
