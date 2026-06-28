@@ -1,0 +1,88 @@
+name: Build OpenChamber web binaries
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-web-binary:
+    name: Build ${{ matrix.name }} binary
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-latest
+            bun_target: bun-linux-x64
+            output_name: openchamber-linux-x64
+          - name: macos-arm64
+            runner: macos-14
+            bun_target: bun-darwin-arm64
+            output_name: openchamber-macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Set fork build stamp
+        shell: bash
+        run: echo "OPENCHAMBER_FORK_BUILD_STAMP=fork-$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_ENV"
+
+      - name: Build web assets
+        run: bun run build:web
+
+      - name: Build binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          bun build \
+            --compile \
+            --target=${{ matrix.bun_target }} \
+            ./packages/web/bin/cli.js \
+            --outfile artifacts/${{ matrix.output_name }}
+          chmod +x artifacts/${{ matrix.output_name }}
+
+      - name: Add README
+        shell: bash
+        run: |
+          cat > artifacts/README-${{ matrix.name }}.txt <<EOF
+          Experimental OpenChamber single-file binary built with \`bun build --compile\`.
+
+          Target: ${{ matrix.bun_target }}
+
+          Notes:
+          - This is experimental; OpenChamber is normally distributed as @openchamber/web plus runtime files.
+          - Bun compile embeds imported modules, but files loaded dynamically from disk may still need packaging changes.
+          - If this binary fails at runtime due missing package.json, dist/, public/, server files, or native modules,
+            use the normal openchamber-web.tgz artifact instead.
+          EOF
+          perl -0pi -e 's/^ {10}//mg' artifacts/README-${{ matrix.name }}.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openchamber-binary-${{ matrix.name }}-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
