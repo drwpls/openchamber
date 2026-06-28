@@ -11,6 +11,13 @@ const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, 'package.jso
 const pwaDevEnabled = process.env.OPENCHAMBER_DISABLE_PWA_DEV !== '1';
 const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase();
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
+const forkBuildStamp = (process.env.OPENCHAMBER_FORK_BUILD_STAMP ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
+const assetFileName = forkBuildStamp
+  ? `assets/[name]-${forkBuildStamp}-[hash][extname]`
+  : 'assets/[name]-[hash][extname]';
+const chunkFileName = forkBuildStamp
+  ? `assets/[name]-${forkBuildStamp}-[hash].js`
+  : 'assets/[name]-[hash].js';
 
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
@@ -108,6 +115,9 @@ export default defineConfig({
       },
       external: ['node:child_process', 'node:fs', 'node:path', 'node:url'],
       output: {
+        assetFileNames: assetFileName,
+        chunkFileNames: chunkFileName,
+        entryFileNames: chunkFileName,
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
 
