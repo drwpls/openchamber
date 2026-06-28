@@ -188,6 +188,7 @@ async function serveCommand(options) {
         console.log(`Starting OpenChamber on port ${targetPort === 0 ? 'auto' : targetPort} (foreground)`);
       }
 
+      process.env.OPENCHAMBER_EMBEDDED_SERVER_IMPORT = 'true';
       const serverModule = typeof importServerModule === 'function'
         ? await importServerModule()
         : await import(pathToFileURL(serverPath).href);
