@@ -69,7 +69,20 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+const PACKAGE_VERSION = '1.13.5';
+
+function readPackageJson() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  } catch (error) {
+    if (typeof import.meta.url === 'string' && import.meta.url.includes('$bunfs')) {
+      return { version: PACKAGE_VERSION };
+    }
+    throw error;
+  }
+}
+
+const PACKAGE_JSON = readPackageJson();
 
 let onCancelCleanup = null;
 let activeCommandOptions = null;
@@ -186,6 +199,7 @@ const commands = {
 
 commands.serve = createServeCommand({
   serverPath: path.join(__dirname, '..', 'server', 'index.js'),
+  importServerModule: () => import('../server/index.js'),
   bunBin: BUN_BIN,
   checkOpenCodeCLI,
   getPreferredServerRuntime,
