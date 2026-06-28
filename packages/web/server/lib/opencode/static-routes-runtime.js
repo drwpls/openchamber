@@ -1,4 +1,42 @@
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
+import { embeddedDistFiles } from './embedded-dist-manifest.generated.js';
+
+const EMBEDDED_DIST_FILE_COUNT = Object.keys(embeddedDistFiles).length;
+
+function getEmbeddedDistContentType(filePath) {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.html')) return 'text/html; charset=utf-8';
+  if (lower.endsWith('.js') || lower.endsWith('.mjs')) return 'text/javascript; charset=utf-8';
+  if (lower.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (lower.endsWith('.json') || lower.endsWith('.webmanifest')) return 'application/json; charset=utf-8';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.ico')) return 'image/x-icon';
+  if (lower.endsWith('.map')) return 'application/json; charset=utf-8';
+  if (lower.endsWith('.wasm')) return 'application/wasm';
+  if (lower.endsWith('.woff')) return 'font/woff';
+  if (lower.endsWith('.woff2')) return 'font/woff2';
+  if (lower.endsWith('.ttf')) return 'font/ttf';
+  if (lower.endsWith('.eot')) return 'application/vnd.ms-fontobject';
+  return 'application/octet-stream';
+}
+
+function normalizeEmbeddedDistRequestPath(requestPath) {
+  if (typeof requestPath !== 'string' || requestPath.length === 0) return '/';
+  const pathname = requestPath.split('?')[0].split('#')[0] || '/';
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    decoded = pathname;
+  }
+  const normalized = decoded.startsWith('/') ? decoded : `/${decoded}`;
+  if (normalized.includes('\0')) return null;
+  if (normalized.split('/').includes('..')) return null;
+  return normalized;
+}
 
 export const createStaticRoutesRuntime = (dependencies) => {
   const {
@@ -25,6 +63,59 @@ export const createStaticRoutesRuntime = (dependencies) => {
 
   const registerStaticRoutes = (app) => {
     const distPath = resolveDistPath();
+
+    if (EMBEDDED_DIST_FILE_COUNT > 0) {
+      console.log(`Serving ${EMBEDDED_DIST_FILE_COUNT} embedded static files from Bun executable`);
+
+      registerPwaManifestRoute(app, {
+        process,
+        resolveProjectDirectory,
+        buildOpenCodeUrl,
+        getOpenCodeAuthHeaders,
+        readSettingsFromDiskMigrated,
+        normalizePwaAppName,
+        normalizePwaOrientation,
+      });
+
+      app.get(/^(?!\/api|\/auth|\/health).*/, (req, res, next) => {
+        const normalizedPath = normalizeEmbeddedDistRequestPath(req.path || req.url || '/');
+        if (!normalizedPath) {
+          res.status(400).send('Invalid static asset path');
+          return;
+        }
+
+        const assetPath = embeddedDistFiles[normalizedPath];
+        if (!assetPath) {
+          next();
+          return;
+        }
+
+        try {
+          if (normalizedPath === '/sw.js') {
+            res.setHeader('Cache-Control', 'no-store');
+          }
+          res.type(getEmbeddedDistContentType(normalizedPath));
+          res.send(fs.readFileSync(assetPath));
+        } catch (error) {
+          next(error);
+        }
+      });
+
+      app.get(/^(?!\/api|.*\.(js|css|svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|map)).*$/, (_req, res, next) => {
+        const indexPath = embeddedDistFiles['/index.html'];
+        if (!indexPath) {
+          res.status(404).send('Embedded index.html not found.');
+          return;
+        }
+        try {
+          res.type('text/html; charset=utf-8');
+          res.send(fs.readFileSync(indexPath, 'utf8'));
+        } catch (error) {
+          next(error);
+        }
+      });
+      return;
+    }
 
     if (fs.existsSync(distPath)) {
       console.log(`Serving static files from ${distPath}`);
