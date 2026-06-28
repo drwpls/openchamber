@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'reflect-metadata';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
