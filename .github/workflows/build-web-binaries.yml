@@ -51,6 +51,9 @@ jobs:
       - name: Build web assets
         run: bun run build:web
 
+      - name: Generate embedded dist manifest
+        run: node packages/web/scripts/generate-embedded-dist-manifest.mjs
+
       - name: Build binary
         shell: bash
         run: |
@@ -72,10 +75,9 @@ jobs:
           Target: ${{ matrix.bun_target }}
 
           Notes:
-          - This is experimental; OpenChamber is normally distributed as @openchamber/web plus runtime files.
-          - Bun compile embeds imported modules, but files loaded dynamically from disk may still need packaging changes.
-          - If this binary fails at runtime due missing package.json, dist/, public/, server files, or native modules,
-            use the normal openchamber-web.tgz artifact instead.
+          - The web dist assets are embedded in this binary through Bun file imports.
+          - No external dist directory is required for the browser UI.
+          - This is experimental; native modules or files loaded dynamically from disk may still need packaging changes.
           EOF
           perl -0pi -e 's/^ {10}//mg' artifacts/README-${{ matrix.name }}.txt
 
