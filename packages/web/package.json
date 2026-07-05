@@ -56,6 +56,10 @@
     "yaml": "^2.8.1",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "sherpa-onnx-darwin-arm64": "1.13.3",
+    "sherpa-onnx-linux-x64": "1.13.3"
+  },
   "devDependencies": {
     "@base-ui/react": "^1.4.0",
     "@codemirror/lang-cpp": "^6.0.3",
