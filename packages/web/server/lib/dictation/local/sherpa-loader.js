@@ -16,6 +16,41 @@ const require = createRequire(import.meta.url);
 
 let cached = null;
 
+function createRequireFromDirectory(directory) {
+  if (typeof directory !== 'string' || directory.trim().length === 0) {
+    return null;
+  }
+  try {
+    return createRequire(path.join(directory, 'openchamber-native-loader.cjs'));
+  } catch {
+    return null;
+  }
+}
+
+function getNativeRequires() {
+  const requires = [require];
+  const executableRequire = createRequireFromDirectory(path.dirname(process.execPath));
+  if (executableRequire) {
+    requires.push(executableRequire);
+  }
+  const configuredRequire = createRequireFromDirectory(process.env.OPENCHAMBER_NATIVE_MODULE_ROOT);
+  if (configuredRequire) {
+    requires.push(configuredRequire);
+  }
+  return requires;
+}
+
+function resolveNativeModule(request) {
+  for (const candidateRequire of getNativeRequires()) {
+    try {
+      return { require: candidateRequire, path: candidateRequire.resolve(request) };
+    } catch {
+      // Try the next native module root.
+    }
+  }
+  return null;
+}
+
 function sherpaPlatformPackageName(platform = process.platform, arch = process.arch) {
   const normalizedPlatform = platform === 'win32' ? 'win' : platform;
   return `sherpa-onnx-${normalizedPlatform}-${arch}`;
@@ -59,18 +94,17 @@ function findEnvKey(env, key) {
 
 function resolveSherpaLibDir(platform = process.platform, arch = process.arch) {
   const packageName = sherpaPlatformPackageName(platform, arch);
-  try {
-    const pkgJson = require.resolve(`${packageName}/package.json`);
+  const resolved = resolveNativeModule(`${packageName}/package.json`);
+  if (resolved) {
     // Electron packages node_modules inside app.asar, but native addons and
     // their shared libraries are extracted to app.asar.unpacked. The dynamic
     // loader (dlopen/DYLD/LD) cannot read from the asar archive, so point the
     // search path at the unpacked copy.
-    const dir = path.dirname(pkgJson);
+    const dir = path.dirname(resolved.path);
     const unpacked = dir.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
     return existsSync(unpacked) ? unpacked : dir;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /**
@@ -99,12 +133,15 @@ export function loadSherpaOnnxNode() {
   }
 
   const attempts = [];
+  applySherpaLoaderEnv(process.env);
 
-  try {
-    cached = require('sherpa-onnx-node');
-    return cached;
-  } catch (error) {
-    attempts.push(`sherpa-onnx-node: ${error?.message || String(error)}`);
+  for (const candidateRequire of getNativeRequires()) {
+    try {
+      cached = candidateRequire('sherpa-onnx-node');
+      return cached;
+    } catch (error) {
+      attempts.push(`sherpa-onnx-node: ${error?.message || String(error)}`);
+    }
   }
 
   const libDir = resolveSherpaLibDir();
