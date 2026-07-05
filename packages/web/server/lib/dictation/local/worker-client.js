@@ -7,7 +7,7 @@
  * in memory while dictation is unused.
  */
 
-import { fork } from 'child_process';
+import { fork, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { fileURLToPath } from 'url';
@@ -18,16 +18,26 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_IDLE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_LOCAL_SAMPLE_RATE = 16000;
 const STDERR_TAIL_MAX_CHARS = 2000;
+const INTERNAL_DICTATION_WORKER_ARG = '--internal-dictation-worker';
+
+function isBunVirtualPath(filePath) {
+  return typeof filePath === 'string' && filePath.includes('$bunfs');
+}
 
 function forkDictationWorker() {
   const env = { ...process.env };
   applySherpaLoaderEnv(env);
-  return fork(fileURLToPath(new URL('./worker-process.js', import.meta.url)), [], {
+  const workerPath = fileURLToPath(new URL('./worker-process.js', import.meta.url));
+  const options = {
     env,
     serialization: 'advanced',
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     windowsHide: true,
-  });
+  };
+  if (isBunVirtualPath(workerPath)) {
+    return spawn(process.execPath, [INTERNAL_DICTATION_WORKER_ARG], options);
+  }
+  return fork(workerPath, [], options);
 }
 
 export class DictationWorkerClient {

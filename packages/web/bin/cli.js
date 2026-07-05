@@ -84,6 +84,7 @@ function readPackageJson() {
 }
 
 const PACKAGE_JSON = readPackageJson();
+const INTERNAL_DICTATION_WORKER_ARG = '--internal-dictation-worker';
 
 let onCancelCleanup = null;
 let activeCommandOptions = null;
@@ -308,82 +309,91 @@ async function main() {
   await commands[command](options);
 }
 
-const isCliExecution = isModuleCliExecution(process.argv[1], import.meta.url, fs.realpathSync, 'openchamber');
+const isInternalDictationWorker = process.argv.includes(INTERNAL_DICTATION_WORKER_ARG);
+const isCliExecution = isInternalDictationWorker
+  || isModuleCliExecution(process.argv[1], import.meta.url, fs.realpathSync, 'openchamber');
 
 if (isCliExecution) {
-  let isHandlingSigint = false;
-  process.on('SIGINT', () => {
-    if (isHandlingSigint) {
-      return;
-    }
-    if (foregroundServerActive) {
-      if (typeof foregroundShutdown === 'function') {
-        void foregroundShutdown('SIGINT');
+  if (isInternalDictationWorker) {
+    import('../server/lib/dictation/local/worker-process.js').catch((error) => {
+      console.error('Failed to start dictation worker:', error);
+      process.exit(1);
+    });
+  } else {
+    let isHandlingSigint = false;
+    process.on('SIGINT', () => {
+      if (isHandlingSigint) {
+        return;
       }
-      return;
-    }
-    isHandlingSigint = true;
-    (async () => {
-      clackCancel('Operation cancelled.');
-      if (onCancelCleanup) {
-        try {
-          await onCancelCleanup();
-        } catch {
-        } finally {
-          setCancelCleanup(null);
+      if (foregroundServerActive) {
+        if (typeof foregroundShutdown === 'function') {
+          void foregroundShutdown('SIGINT');
         }
+        return;
       }
-      process.exit(130);
-    })();
-  });
+      isHandlingSigint = true;
+      (async () => {
+        clackCancel('Operation cancelled.');
+        if (onCancelCleanup) {
+          try {
+            await onCancelCleanup();
+          } catch {
+          } finally {
+            setCancelCleanup(null);
+          }
+        }
+        process.exit(130);
+      })();
+    });
 
-  process.on('unhandledRejection', (reason, promise) => {
-    if (isJsonMode(activeCommandOptions)) {
-      printJson({
-        status: 'error',
-        error: {
-          message: `Unhandled rejection: ${String(reason)}`,
-        },
-      });
-    } else {
-      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    }
-    process.exit(1);
-  });
+    process.on('unhandledRejection', (reason, promise) => {
+      if (isJsonMode(activeCommandOptions)) {
+        printJson({
+          status: 'error',
+          error: {
+            message: `Unhandled rejection: ${String(reason)}`,
+          },
+        });
+      } else {
+        console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      }
+      process.exit(1);
+    });
 
-  process.on('uncaughtException', (error) => {
-    if (isJsonMode(activeCommandOptions)) {
-      printJson({
-        status: 'error',
-        error: {
-          message: `Uncaught exception: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      });
-    } else {
-      console.error('Uncaught Exception:', error);
-    }
-    process.exit(1);
-  });
+    process.on('uncaughtException', (error) => {
+      if (isJsonMode(activeCommandOptions)) {
+        printJson({
+          status: 'error',
+          error: {
+            message: `Uncaught exception: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        });
+      } else {
+        console.error('Uncaught Exception:', error);
+      }
+      process.exit(1);
+    });
 
-  main().catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (isJsonMode(activeCommandOptions)) {
-      printJson({
-        status: 'error',
-        error: {
-          message,
-        },
-      });
-    } else if (process.stdout?.isTTY && !HAS_PLAIN_FLAG) {
-      clackIntro(boldText('Error'));
-      logStatus('error', message);
-      clackOutro('failed');
-    } else {
-      console.error(`Error: ${message}`);
-    }
-    const exitCode = error instanceof TunnelCliError ? error.exitCode : EXIT_CODE.GENERAL_ERROR;
-    process.exit(exitCode);
-  });
+    main().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isJsonMode(activeCommandOptions)) {
+        printJson({
+          status: 'error',
+          error: {
+            message,
+          },
+        });
+      } else if (process.stdout?.isTTY && !HAS_PLAIN_FLAG) {
+        clackIntro(boldText('Error'));
+        logStatus('error', message);
+        clackOutro('failed');
+      } else {
+        console.error(`Error: ${message}`);
+      }
+      const exitCode = error instanceof TunnelCliError ? error.exitCode : EXIT_CODE.GENERAL_ERROR;
+      process.exit(exitCode);
+    });
+  }
 }
 
 export {
