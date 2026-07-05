@@ -22,10 +22,12 @@ jobs:
             runner: ubuntu-latest
             bun_target: bun-linux-x64
             output_name: openchamber-linux-x64
+            sherpa_package: sherpa-onnx-linux-x64
           - name: macos-arm64
             runner: macos-14
             bun_target: bun-darwin-arm64
             output_name: openchamber-macos-arm64
+            sherpa_package: sherpa-onnx-darwin-arm64
 
     steps:
       - name: Checkout
@@ -66,6 +68,14 @@ jobs:
             --outfile artifacts/${{ matrix.output_name }}
           chmod +x artifacts/${{ matrix.output_name }}
 
+      - name: Bundle native dictation modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/node_modules
+          cp -aL node_modules/sherpa-onnx-node artifacts/node_modules/sherpa-onnx-node
+          cp -aL node_modules/${{ matrix.sherpa_package }} artifacts/node_modules/${{ matrix.sherpa_package }}
+
       - name: Add README
         shell: bash
         run: |
@@ -77,7 +87,7 @@ jobs:
           Notes:
           - The web dist assets are embedded in this binary through Bun file imports.
           - No external dist directory is required for the browser UI.
-          - This is experimental; native modules or files loaded dynamically from disk may still need packaging changes.
+          - Native dictation modules are included under ./node_modules and must stay next to the binary.
           EOF
           perl -0pi -e 's/^ {10}//mg' artifacts/README-${{ matrix.name }}.txt
 
