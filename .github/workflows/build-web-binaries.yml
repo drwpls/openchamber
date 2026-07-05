@@ -73,8 +73,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/node_modules
-          SHERPA_NODE_DIR="$(dirname "$(node -e "console.log(require.resolve('sherpa-onnx-node/package.json'))")")"
-          SHERPA_PLATFORM_DIR="$(dirname "$(node -e "console.log(require.resolve('${{ matrix.sherpa_package }}/package.json'))")")"
+          SHERPA_NODE_DIR="$(node -e "const { createRequire } = require('node:module'); const path = require('node:path'); const requireFromWeb = createRequire(path.resolve('packages/web/package.json')); console.log(path.dirname(requireFromWeb.resolve('sherpa-onnx-node/package.json')));")"
+          SHERPA_PLATFORM_DIR="$(node -e "const { createRequire } = require('node:module'); const path = require('node:path'); const requireFromWeb = createRequire(path.resolve('packages/web/package.json')); console.log(path.dirname(requireFromWeb.resolve('${{ matrix.sherpa_package }}/package.json')));")"
+          test -f "$SHERPA_NODE_DIR/package.json"
+          test -f "$SHERPA_PLATFORM_DIR/package.json"
           cp -aL "$SHERPA_NODE_DIR" artifacts/node_modules/sherpa-onnx-node
           cp -aL "$SHERPA_PLATFORM_DIR" artifacts/node_modules/${{ matrix.sherpa_package }}
 
