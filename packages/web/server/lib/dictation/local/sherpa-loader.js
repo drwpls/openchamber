@@ -16,6 +16,14 @@ const require = createRequire(import.meta.url);
 
 let cached = null;
 
+function isSherpaJsWrapper(candidate) {
+  return Boolean(
+    candidate
+      && typeof candidate.OfflineRecognizer === 'function'
+      && typeof candidate.OfflineTts === 'function',
+  );
+}
+
 function createRequireFromDirectory(directory) {
   if (typeof directory !== 'string' || directory.trim().length === 0) {
     return null;
@@ -137,28 +145,34 @@ export function loadSherpaOnnxNode() {
 
   for (const candidateRequire of getNativeRequires()) {
     try {
-      cached = candidateRequire('sherpa-onnx-node');
-      return cached;
+      const candidate = candidateRequire('sherpa-onnx-node');
+      if (isSherpaJsWrapper(candidate)) {
+        cached = candidate;
+        return cached;
+      }
+      attempts.push('sherpa-onnx-node: loaded raw addon without OfflineRecognizer/OfflineTts wrapper classes');
     } catch (error) {
       attempts.push(`sherpa-onnx-node: ${error?.message || String(error)}`);
     }
   }
 
-  const libDir = resolveSherpaLibDir();
-  if (libDir) {
-    applySherpaLoaderEnv(process.env);
-    const addonPath = path.join(libDir, 'sherpa-onnx.node');
-    if (existsSync(addonPath)) {
-      try {
-        cached = require(addonPath);
+  const wrapper = resolveNativeModule('sherpa-onnx-node/sherpa-onnx.js');
+  if (wrapper) {
+    try {
+      const candidate = wrapper.require(wrapper.path);
+      if (isSherpaJsWrapper(candidate)) {
+        cached = candidate;
         return cached;
-      } catch (error) {
-        attempts.push(`${addonPath}: ${error?.message || String(error)}`);
       }
-    } else {
-      attempts.push(`${addonPath}: file not found`);
+      attempts.push(`${wrapper.path}: loaded raw addon without OfflineRecognizer/OfflineTts wrapper classes`);
+    } catch (error) {
+      attempts.push(`${wrapper.path}: ${error?.message || String(error)}`);
     }
   } else {
+    attempts.push('sherpa-onnx-node/sherpa-onnx.js: wrapper file not found');
+  }
+
+  if (!resolveSherpaLibDir()) {
     attempts.push(`${sherpaPlatformPackageName()}: platform package not installed`);
   }
 
