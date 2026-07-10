@@ -44,6 +44,7 @@ export interface MobilePillComposerProps {
     /** While a turn runs, the trailing action queues, as the expanded composer does. */
     onQueueMessage: () => void;
     onPickLocalFiles: () => void;
+    onPickLocalFolder?: () => void;
     onOpenIssuePicker: () => void;
     onOpenPrPicker: () => void;
     showLinearPicker?: boolean;
@@ -74,6 +75,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onPrimaryAction,
         onQueueMessage,
         onPickLocalFiles,
+        onPickLocalFolder,
         onOpenIssuePicker,
         onOpenPrPicker,
         showLinearPicker,
@@ -114,6 +116,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     footerIconButtonClass={footerIconButtonClass}
                     iconSizeClass={iconSizeClass}
                     handlePickLocalFiles={onPickLocalFiles}
+                    handlePickLocalFolder={onPickLocalFolder}
                     openIssuePicker={onOpenIssuePicker}
                     openPrPicker={onOpenPrPicker}
                     showLinearPicker={showLinearPicker}
