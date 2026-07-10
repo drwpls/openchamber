@@ -2176,7 +2176,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
-        const pdfAttachmentContext = buildPdfAttachmentContextFromAttachments(sendableAttachedFiles);
+        const pdfAttachmentContext = buildPdfAttachmentContextFromAttachments(attachedFiles);
         if (pdfAttachmentContext) {
             additionalParts.push({
                 text: pdfAttachmentContext,
@@ -2502,8 +2502,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         // Collect all attachments for error recovery
-        const allAttachments = !queuedOnly && sendableAttachedFiles.length > 0
-            ? sendableAttachedFiles
+        const allAttachments = !queuedOnly && attachedFiles.length > 0
+            ? attachedFiles
             : [
                 ...primaryAttachments,
                 ...additionalParts.flatMap(p => p.attachments ?? []),
@@ -5266,7 +5266,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 isVSCode={isVSCode}
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
+                                fileInputRef={fileInputRef}
+                                folderInputRef={folderInputRef}
+                                handleLocalFileSelect={handleLocalFileSelect}
+                                handleLocalFolderSelect={handleLocalFolderSelect}
                                 handlePickLocalFiles={handlePickLocalFiles}
+                                handlePickLocalFolder={handlePickLocalFolder}
                                 openIssuePicker={openIssuePicker}
                                 openPrPicker={openPrPicker}
                                 onOpenMobileSheet={openMobileAttachSheet}
