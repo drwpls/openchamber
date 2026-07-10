@@ -2777,6 +2777,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onApplySuggestion={applyAssistSuggestion}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
+                        onPickLocalFolder={handlePickLocalFolder}
                         onOpenIssuePicker={openIssuePicker}
                         onOpenPrPicker={openPrPicker}
                         onOpenAttachSheet={openMobileAttachSheet}
