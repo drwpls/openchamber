@@ -54,6 +54,7 @@ export interface MobilePillComposerProps {
     /** The host the project's issues and change requests come from. */
     repositoryProvider?: SourceControlProvider | null;
     trackerPickers?: readonly ComposerTrackerPicker[];
+    onPickLocalFolder?: () => void;
     onOpenAttachSheet: () => void;
     onStartDictation: () => void;
     onAbort: () => void;
@@ -82,6 +83,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onOpenGitHubPicker,
         repositoryProvider,
         trackerPickers,
+        onPickLocalFolder,
         onOpenAttachSheet,
         onStartDictation,
         onAbort,
@@ -128,6 +130,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     openGitHubPicker={onOpenGitHubPicker}
                     repositoryProvider={repositoryProvider}
                     trackerPickers={trackerPickers}
+                    handlePickLocalFolder={onPickLocalFolder}
                     onOpenMobileSheet={onOpenAttachSheet}
                 />
                 <button

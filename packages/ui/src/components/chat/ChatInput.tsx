@@ -5050,6 +5050,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onOpenGitHubPicker={openGitHubPicker}
                         repositoryProvider={repositoryProvider}
                         trackerPickers={trackerPickers}
+                        onPickLocalFolder={handlePickLocalFolder}
                         onOpenAttachSheet={openMobileAttachSheet}
                         onStartDictation={toggleDictation}
                         onAbort={handleAbort}
