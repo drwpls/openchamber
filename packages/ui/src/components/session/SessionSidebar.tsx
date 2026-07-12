@@ -659,10 +659,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     });
   }, [t, updateStore]);
 
-  const handleOpenShareOpinionDialog = React.useCallback(() => {
-    setShareOpinionDialogOpen(true);
-  }, []);
-
   React.useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1717,7 +1713,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         onOpenShortcuts={toggleHelpDialog}
         onOpenAbout={() => setAboutDialogOpen(true)}
         onOpenUpdate={handleOpenUpdateDialog}
-        onOpenShareOpinion={handleOpenShareOpinionDialog}
         showRuntimeButtons={!isVSCode}
         showUpdateButton={showSidebarUpdateButton}
       />
