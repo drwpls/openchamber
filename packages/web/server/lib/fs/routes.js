@@ -703,8 +703,17 @@ export const registerFsRoutes = (app, dependencies) => {
 
       let resolvedPath = '';
       if (allowOutsideWorkspace) {
-        console.warn('Rejected outside-workspace mkdir without trusted directory grant');
-        return res.status(403).json({ error: 'Outside workspace directory creation requires a grant' });
+        const normalized = normalizeDirectoryPath(dirPath);
+        if (!normalized || typeof normalized !== 'string') {
+          return res.status(400).json({ error: 'Path is required' });
+        }
+        const resolved = path.resolve(normalized);
+        const homeRoot = path.resolve(os.homedir());
+        if (!isPathWithinRoot(resolved, homeRoot, path, os)) {
+          console.warn('Rejected outside-workspace mkdir outside home directory');
+          return res.status(403).json({ error: 'Outside workspace directory creation is only allowed under the home directory' });
+        }
+        resolvedPath = resolved;
       } else {
         const resolved = await resolveWorkspacePathFromContext({
           req,
