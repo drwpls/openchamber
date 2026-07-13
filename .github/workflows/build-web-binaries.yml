@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-web-binary:
@@ -102,3 +102,45 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
+
+  publish-release:
+    name: Publish public release assets
+    runs-on: ubuntu-latest
+    needs: build-web-binary
+    if: github.event_name == 'push'
+    steps:
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: openchamber-binary-*-${{ github.sha }}
+          path: downloaded-artifacts
+
+      - name: Package release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          for artifact_dir in downloaded-artifacts/openchamber-binary-*-${GITHUB_SHA}; do
+            test -d "$artifact_dir"
+            artifact_name="$(basename "$artifact_dir")"
+            tar -C "$artifact_dir" -czf "release-assets/${artifact_name}.tar.gz" .
+          done
+          ls -la release-assets
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: openchamber-binary-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          title="OpenChamber binary ${GITHUB_SHA::12}"
+          notes=$'Public binary archives for this fork build.\n\nThe web dist assets are embedded in the binary. Native dictation modules are bundled under ./node_modules and must stay next to the binary.'
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes "$notes"
+          fi
