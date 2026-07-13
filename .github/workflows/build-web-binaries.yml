@@ -136,10 +136,11 @@ jobs:
           set -euo pipefail
           title="OpenChamber binary ${GITHUB_SHA::12}"
           notes=$'Public binary archives for this fork build.\n\nThe web dist assets are embedded in the binary. Native dictation modules are bundled under ./node_modules and must stay next to the binary.'
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "$title" \
               --notes "$notes"
