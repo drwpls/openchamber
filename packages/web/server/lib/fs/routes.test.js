@@ -515,7 +515,20 @@ describe('fs read', () => {
     expect(res.getHeader('referrer-policy')).toBe('no-referrer');
   });
 
-  it('rejects outside workspace mkdir without a trusted directory grant', async () => {
+  it('allows outside workspace mkdir under the user home directory', async () => {
+    const fsPromises = {
+      mkdir: vi.fn(async () => undefined),
+    };
+    const handler = registerMkdir(fsPromises);
+
+    const res = await callMkdir(handler, { path: '/home/user/projects/new-app', allowOutsideWorkspace: true });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ success: true, path: '/home/user/projects/new-app' });
+    expect(fsPromises.mkdir).toHaveBeenCalledWith('/home/user/projects/new-app', { recursive: true });
+  });
+
+  it('rejects outside workspace mkdir outside the user home directory', async () => {
     const fsPromises = {
       mkdir: vi.fn(async () => undefined),
     };
@@ -524,7 +537,7 @@ describe('fs read', () => {
     const res = await callMkdir(handler, { path: '/tmp/staging', allowOutsideWorkspace: true });
 
     expect(res.statusCode).toBe(403);
-    expect(res.body).toEqual({ error: 'Outside workspace directory creation requires a grant' });
+    expect(res.body).toEqual({ error: 'Outside workspace directory creation is only allowed under the home directory' });
     expect(fsPromises.mkdir).not.toHaveBeenCalled();
   });
 
