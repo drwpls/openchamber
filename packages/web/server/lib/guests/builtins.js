@@ -28,7 +28,17 @@ export const isReservedBuiltInId = (id) => id.startsWith(BUILTIN_PREFIX);
 
 /** Only application startup supplies this root; manifests and HTTP input cannot select it. */
 export const readBuiltInRegistry = async (root = DEFAULT_BUILTIN_ROOT) => {
-  const realRoot = await fs.realpath(root);
+  let realRoot;
+  try {
+    realRoot = await fs.realpath(root);
+  } catch (error) {
+    // Compiled binaries resolve this URL onto a virtual bunfs path that is not
+    // a real directory. Missing builtins must not prevent the server from starting.
+    if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+      return { root, extensions: [] };
+    }
+    throw error;
+  }
   const registry = builtInRegistrySchema.parse(JSON.parse(await fs.readFile(path.join(realRoot, 'registry.json'), 'utf8')));
   return { root: realRoot, extensions: registry.extensions };
 };

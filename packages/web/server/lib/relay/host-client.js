@@ -4,7 +4,7 @@
 // dispatcher. Spec: .opencode/plans/private-relay/01-protocol-spec.md (Layer 1).
 
 import { WebSocket } from 'ws';
-import { createRequire } from 'node:module';
+import packageJson from '../../../package.json' with { type: 'json' };
 
 import { RELAY_PROTOCOL_VERSION, RelayCloseCode, createHostHandshake } from './e2ee.js';
 import { createOutboundFrameBatcher, decodeFrameBatch, decodeTunnelFrame, decodeDeliveryAck, encodeFrameBatch, TunnelFrameType } from './tunnel-codec.js';
@@ -51,7 +51,7 @@ const resolveBatchWindowMs = (option) => {
  * }} options
  */
 export const startRelayHost = ({ relayUrl, identity, localPort, getLocalPort, onStatus, logger = console, batchWindowMs, batch, flowControl }) => {
-  const { version } = createRequire(import.meta.url)('../../../package.json');
+  const { version } = packageJson;
   const platform = process.env.OPENCHAMBER_RUNTIME || 'web';
   const resolveLocalPort = typeof getLocalPort === 'function' ? getLocalPort : () => localPort;
   const localBatch = batch !== false;
