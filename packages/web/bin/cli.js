@@ -74,6 +74,7 @@ import {
   logStatus,
 } from './cli-output.js';
 import { applyConnectAttemptTimeout } from '../server/lib/network-defaults.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 // The CLI process performs provider fetches (quota/usage, update notes) under
 // Node/undici, whose happy-eyeballs default aborts each connect attempt after
@@ -84,20 +85,7 @@ applyConnectAttemptTimeout();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PACKAGE_VERSION = '1.13.5';
-
-function readPackageJson() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  } catch (error) {
-    if (typeof import.meta.url === 'string' && import.meta.url.includes('$bunfs')) {
-      return { version: PACKAGE_VERSION };
-    }
-    throw error;
-  }
-}
-
-const PACKAGE_JSON = readPackageJson();
+const PACKAGE_JSON = packageJson;
 const INTERNAL_DICTATION_WORKER_ARG = '--internal-dictation-worker';
 
 let onCancelCleanup = null;

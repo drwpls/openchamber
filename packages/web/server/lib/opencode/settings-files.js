@@ -7,9 +7,7 @@
 //
 // The VS Code extension host writes the same two files with the same shape
 // (`packages/vscode/src/settings-files.ts`); keep the format changes in sync.
-import { createRequire } from 'node:module';
-
-const registry = createRequire(import.meta.url)('./settings-registry.json');
+import registry from './settings-registry.json' with { type: 'json' };
 
 const PREFERENCES_FILE_NAME = 'preferences.json';
 const PREFERENCES_DOCUMENT_VERSION = 1;

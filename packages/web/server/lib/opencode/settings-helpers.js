@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { createRequire } from 'node:module';
 
 import { isAgentMemoryFeatureAvailable } from '../agent-memory/feature-flag.js';
 import { isWorkflowFeatureAvailable } from '../workflows/feature-flag.js';
@@ -8,12 +7,11 @@ import { isPermissionMode } from '../permission-auto-accept/modes.js';
 import { asNonEmptyString } from '../shared/guards.js';
 import { idleStopSchema } from '../spaces/idle-stop.js';
 import { sshHostSchema } from '../spaces/places/ssh-host.js';
+import settingsRegistry from './settings-registry.json' with { type: 'json' };
 
 // Generated from packages/ui/src/lib/settings/registry.ts by
 // `bun run settings-registry:generate`; `registry.test.ts` fails when stale.
-// The server is plain ESM without a bundler, so the snapshot is read with
-// `createRequire` (import attributes differ across the Node versions we run on).
-const settingsRegistry = createRequire(import.meta.url)('./settings-registry.json');
+// Static JSON import so Node ESM and `bun build --compile` both embed the snapshot.
 
 /**
  * Whether a client may persist this key through PUT /api/config/settings:
