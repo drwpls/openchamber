@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import net from 'node:net';
 
 import { SpaceError } from './errors.js';
+import { embeddedGatekeeperProgram } from './gatekeeper-program-embedded.generated.js';
 import {
   EXEC_FAILED_CODES,
   EXEC_INTERRUPTED_CODES,
@@ -33,7 +34,8 @@ import {
  * The gatekeeper's program, read from the file beside this one. `packages/web` ships `server/`
  * as plain files, so this works in the published package as it does in a checkout.
  */
-export const GATEKEEPER_PROGRAM = readFileSync(new URL('./gatekeeper-program.cjs', import.meta.url), 'utf8');
+export const GATEKEEPER_PROGRAM = embeddedGatekeeperProgram
+  || readFileSync(new URL('./gatekeeper-program.cjs', import.meta.url), 'utf8');
 
 const REQUEST_SECONDS = 20;
 // The gatekeeper answers in milliseconds. A long attempt would only delay the wall-clock deadline.
